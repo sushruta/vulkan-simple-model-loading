@@ -7,12 +7,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/hash.hpp>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb/stb_image.h>
-
-#define TINYOBJLOADER_IMPLEMENTATION
-#include <tiny_obj_loader.h>
+#include <glm/gtx/string_cast.hpp>
 
 #include <iostream>
 #include <fstream>
@@ -38,7 +33,6 @@ const uint32_t HEIGHT = 600;
 const int MAX_FRAMES_IN_FLIGHT = 2;
 
 const std::string MODEL_PATH = "models/bunny.obj";
-const std::string TEXTURE_PATH = "textures/viking_room.png";
 
 const std::vector<const char*> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
@@ -88,7 +82,6 @@ struct SwapChainSupportDetails {
 struct Vertex {
 	glm::vec3 pos;
 	glm::vec3 normal;
-	glm::vec2 texCoord;
 
 	static VkVertexInputBindingDescription getBindingDescription() {
 		VkVertexInputBindingDescription bindingDescription{};
@@ -99,8 +92,8 @@ struct Vertex {
 		return bindingDescription;
 	}
 
-	static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions() {
-		std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
+	static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
+		std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
 
 		attributeDescriptions[0].binding = 0;
 		attributeDescriptions[0].location = 0;
@@ -112,23 +105,18 @@ struct Vertex {
 		attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
 		attributeDescriptions[1].offset = offsetof(Vertex, normal);
 
-		attributeDescriptions[2].binding = 0;
-		attributeDescriptions[2].location = 2;
-		attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
-		attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
-
 		return attributeDescriptions;
 	}
 
 	bool operator==(const Vertex& other) const {
-		return pos == other.pos && normal == other.normal && texCoord == other.texCoord;
+		return pos == other.pos && normal == other.normal;
 	}
 };
 
 namespace std {
 	template<> struct hash<Vertex> {
 		size_t operator()(Vertex const& vertex) const {
-			return ((hash<glm::vec3>()(vertex.pos) ^ (hash<glm::vec3>()(vertex.normal) << 1)) >> 1) ^ (hash<glm::vec2>()(vertex.texCoord) << 1);
+			return ((hash<glm::vec3>()(vertex.pos) ^ (hash<glm::vec3>()(vertex.normal) << 1)) >> 1);
 		}
 	};
 }
@@ -178,11 +166,6 @@ class HelloTriangleApplication {
 		VkImage depthImage;
 		VkDeviceMemory depthImageMemory;
 		VkImageView depthImageView;
-
-		VkImage textureImage;
-		VkDeviceMemory textureImageMemory;
-		VkImageView textureImageView;
-		VkSampler textureSampler;
 
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
@@ -242,10 +225,7 @@ class HelloTriangleApplication {
 			createCommandPool();
 			createDepthResources();
 			createFramebuffers();
-			createTextureImage();
-			createTextureImageView();
-			createTextureSampler();
-			loadModel2();
+			loadModel();
 			createVertexBuffer();
 			createIndexBuffer();
 			createUniformBuffers();
@@ -294,12 +274,6 @@ class HelloTriangleApplication {
 			}
 
 			vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-
-			vkDestroySampler(device, textureSampler, nullptr);
-			vkDestroyImageView(device, textureImageView, nullptr);
-
-			vkDestroyImage(device, textureImage, nullptr);
-			vkFreeMemory(device, textureImageMemory, nullptr);
 
 			vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
@@ -606,14 +580,7 @@ class HelloTriangleApplication {
 			uboLayoutBinding.pImmutableSamplers = nullptr;
 			uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
-			VkDescriptorSetLayoutBinding samplerLayoutBinding{};
-			samplerLayoutBinding.binding = 1;
-			samplerLayoutBinding.descriptorCount = 1;
-			samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			samplerLayoutBinding.pImmutableSamplers = nullptr;
-			samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-			std::array<VkDescriptorSetLayoutBinding, 2> bindings = {uboLayoutBinding, samplerLayoutBinding};
+			std::array<VkDescriptorSetLayoutBinding, 1> bindings = {uboLayoutBinding};
 			VkDescriptorSetLayoutCreateInfo layoutInfo{};
 			layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 			layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
@@ -818,64 +785,6 @@ class HelloTriangleApplication {
 			return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
 		}
 
-		void createTextureImage() {
-			int texWidth, texHeight, texChannels;
-			stbi_uc* pixels = stbi_load(TEXTURE_PATH.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-			VkDeviceSize imageSize = texWidth * texHeight * 4;
-
-			if (!pixels) {
-				throw std::runtime_error("failed to load texture image!");
-			}
-
-			VkBuffer stagingBuffer;
-			VkDeviceMemory stagingBufferMemory;
-			createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
-
-			void* data;
-			vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
-			memcpy(data, pixels, static_cast<size_t>(imageSize));
-			vkUnmapMemory(device, stagingBufferMemory);
-
-			stbi_image_free(pixels);
-
-			createImage(texWidth, texHeight, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, textureImage, textureImageMemory);
-
-			transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-			copyBufferToImage(stagingBuffer, textureImage, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
-			transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-			vkDestroyBuffer(device, stagingBuffer, nullptr);
-			vkFreeMemory(device, stagingBufferMemory, nullptr);
-		}
-
-		void createTextureImageView() {
-			textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
-		}
-
-		void createTextureSampler() {
-			VkPhysicalDeviceProperties properties{};
-			vkGetPhysicalDeviceProperties(physicalDevice, &properties);
-
-			VkSamplerCreateInfo samplerInfo{};
-			samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-			samplerInfo.magFilter = VK_FILTER_LINEAR;
-			samplerInfo.minFilter = VK_FILTER_LINEAR;
-			samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-			samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-			samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-			samplerInfo.anisotropyEnable = VK_TRUE;
-			samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
-			samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-			samplerInfo.unnormalizedCoordinates = VK_FALSE;
-			samplerInfo.compareEnable = VK_FALSE;
-			samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-			samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-
-			if (vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler) != VK_SUCCESS) {
-				throw std::runtime_error("failed to create texture sampler!");
-			}
-		}
-
 		VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags) {
 			VkImageViewCreateInfo viewInfo{};
 			viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -1001,48 +910,7 @@ class HelloTriangleApplication {
 			endSingleTimeCommands(commandBuffer);
 		}
 
-		void loadModel() {
-			tinyobj::attrib_t attrib;
-			std::vector<tinyobj::shape_t> shapes;
-			std::vector<tinyobj::material_t> materials;
-			std::string warn, err;
-
-			if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
-				throw std::runtime_error(warn + err);
-			}
-
-			std::unordered_map<Vertex, uint32_t> uniqueVertices{};
-
-			for (const auto& shape : shapes) {
-				for (const auto& index : shape.mesh.indices) {
-					Vertex vertex{};
-
-					vertex.pos = {
-						attrib.vertices[3 * index.vertex_index + 0],
-						attrib.vertices[3 * index.vertex_index + 1],
-						attrib.vertices[3 * index.vertex_index + 2]
-					};
-
-					//vertex.texCoord = {
-					//	attrib.texcoords[2 * index.texcoord_index + 0],
-					//	1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
-					//};
-
-          vertex.texCoord = {0.0f, 0.5f};
-
-					vertex.normal = glm::normalize(glm::vec3(1.0f, 1.0f, 1.0f));
-
-					if (uniqueVertices.count(vertex) == 0) {
-						uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
-						vertices.push_back(vertex);
-					}
-
-					indices.push_back(uniqueVertices[vertex]);
-				}
-			}
-		}
-
-    void loadModel2() {
+    void loadModel() {
       std::cout << "ATTEMPTING TO LOAD THE MODEL" << std::endl;
       std::string line;
       std::ifstream modelFile(MODEL_PATH.c_str());
@@ -1109,15 +977,16 @@ class HelloTriangleApplication {
           auto v31 = glm::normalize(v3 - v1);
           auto norm = glm::cross(v21, v31);
 
-          vertices[vid1].normal = vertices[vid1].normal + norm;
-          vertices[vid2].normal = vertices[vid2].normal + norm;
-          vertices[vid3].normal = vertices[vid3].normal + norm;
-        }
-
-        for (auto& vertex : vertices) {
-          vertex.normal = glm::normalize(vertex.normal);
+          vertices[vid1].normal += norm;
+          vertices[vid2].normal += norm;
+          vertices[vid3].normal += norm;
         }
       }
+
+      for (auto& vertex : vertices) {
+        vertex.normal = glm::normalize(vertex.normal);
+      }
+      
       std::cout << "COMPLETED LOADING THE MODEL" << std::endl;
     }
 
@@ -1176,11 +1045,9 @@ class HelloTriangleApplication {
 		}
 
 		void createDescriptorPool() {
-			std::array<VkDescriptorPoolSize, 2> poolSizes{};
+			std::array<VkDescriptorPoolSize, 1> poolSizes{};
 			poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 			poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-			poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
 
 			VkDescriptorPoolCreateInfo poolInfo{};
 			poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1212,12 +1079,7 @@ class HelloTriangleApplication {
 				bufferInfo.offset = 0;
 				bufferInfo.range = sizeof(UniformBufferObject);
 
-				VkDescriptorImageInfo imageInfo{};
-				imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				imageInfo.imageView = textureImageView;
-				imageInfo.sampler = textureSampler;
-
-				std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
+				std::array<VkWriteDescriptorSet, 1> descriptorWrites{};
 
 				descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 				descriptorWrites[0].dstSet = descriptorSets[i];
@@ -1226,14 +1088,6 @@ class HelloTriangleApplication {
 				descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 				descriptorWrites[0].descriptorCount = 1;
 				descriptorWrites[0].pBufferInfo = &bufferInfo;
-
-				descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-				descriptorWrites[1].dstSet = descriptorSets[i];
-				descriptorWrites[1].dstBinding = 1;
-				descriptorWrites[1].dstArrayElement = 0;
-				descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-				descriptorWrites[1].descriptorCount = 1;
-				descriptorWrites[1].pImageInfo = &imageInfo;
 
 				vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
 			}
