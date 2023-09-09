@@ -1,0 +1,77 @@
+## TODO: use a different binary after checking the OS
+set(GLSL_COMPILER "/usr/local/bin/glslc")
+
+set(VERT_PATTERN "vert\.glsl")
+set(FRAG_PATTERN "frag\.glsl")
+set(COMP_PATTERN "comp\.glsl")
+
+macro(ATTACH_GLSL_SHADERS target shaders_dir)
+  file(GLOB_RECURSE GLSL_SOURCE_FILES ${shaders_dir} *.glsl)
+
+  foreach(GLSL_SOURCE_FILE ${GLSL_SOURCE_FILES})
+    if("${GLSL_SOURCE_FILE}" MATCHES "${VERT_PATTERN}")
+      list(APPEND VERTEX_SHADER_FILES ${GLSL_SOURCE_FILE})
+    elseif("${GLSL_SOURCE_FILE}" MATCHES "${FRAG_PATTERN}")
+      list(APPEND FRAGMENT_SHADER_FILES ${GLSL_SOURCE_FILE})
+    elseif("${GLSL_SOURCE_FILE}" MATCHES "${COMP_PATTERN}")
+      list(APPEND COMPUTE_SHADER_FILES ${GLSL_SOURCE_FILE})
+    endif()
+  endforeach(GLSL_SOURCE_FILE)
+
+  message(STATUS "Vertex Shaders: ${VERTEX_SHADER_FILES}")
+  message(STATUS "Fragment Shaders: ${FRAGMENT_SHADER_FILES}")
+  message(STATUS "Compute Shaders: ${COMPUTE_SHADER_FILES}")
+
+  ## COMPILE VERTEX SHADERS
+  foreach(SHADER_FILE ${VERTEX_SHADER_FILES})
+    get_filename_component(FILE_NAME ${SHADER_FILE} NAME_WLE)
+		set(SPIRV "${PROJECT_BINARY_DIR}/shaders/${FILE_NAME}.spv")
+
+		add_custom_command(
+			OUTPUT ${SPIRV}
+			COMMAND cd
+			COMMAND "${CMAKE_COMMAND}" -E make_directory "${PROJECT_BINARY_DIR}/shaders/"
+      COMMAND "${GLSL_COMPILER}" -O -fshader-stage=vert ${SHADER_FILE} -o ${SPIRV}
+      DEPENDS ${SHADER_FILE}
+		)
+		list(APPEND SPIRV_BINARY_FILES ${SPIRV})
+	endforeach()
+
+  ## COMPILE FRAGMENT SHADERS
+  foreach(SHADER_FILE ${FRAGMENT_SHADER_FILES})
+    get_filename_component(FILE_NAME ${SHADER_FILE} NAME_WLE)
+		set(SPIRV "${PROJECT_BINARY_DIR}/shaders/${FILE_NAME}.spv")
+
+		add_custom_command(
+			OUTPUT ${SPIRV}
+			COMMAND cd
+			COMMAND "${CMAKE_COMMAND}" -E make_directory "${PROJECT_BINARY_DIR}/shaders/"
+      COMMAND "${GLSL_COMPILER}" -O -fshader-stage=frag ${SHADER_FILE} -o ${SPIRV}
+      DEPENDS ${SHADER_FILE}
+		)
+		list(APPEND SPIRV_BINARY_FILES ${SPIRV})
+	endforeach()
+
+  ## COMPILE COMPUTE SHADERS
+  foreach(SHADER_FILE ${COMPUTE_SHADER_FILES})
+    get_filename_component(FILE_NAME ${SHADER_FILE} NAME_WLE)
+		set(SPIRV "${PROJECT_BINARY_DIR}/shaders/${FILE_NAME}.spv")
+
+		add_custom_command(
+			OUTPUT ${SPIRV}
+			COMMAND cd
+			COMMAND "${CMAKE_COMMAND}" -E make_directory "${PROJECT_BINARY_DIR}/shaders/"
+      COMMAND "${GLSL_COMPILER}" -O -fshader-stage=comp ${SHADER_FILE} -o ${SPIRV}
+      DEPENDS ${SHADER_FILE}
+		)
+		list(APPEND SPIRV_BINARY_FILES ${SPIRV})
+	endforeach()
+
+	add_custom_target(Shaders DEPENDS ${SPIRV_BINARY_FILES})
+
+	add_dependencies(${target} Shaders)
+
+	add_custom_target(TARGET ${target} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target}>/shaders/"
+		COMMAND ${CMAKE_COMMAND} -E copy_directory "${PROJECT_BINARY_DIR}/shaders" "$<TARGET_FILE_DIR:${target}>/shaders")
+endmacro()
