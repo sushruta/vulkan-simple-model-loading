@@ -14,15 +14,9 @@ add_executable(a.out main.cpp)
 
 target_compile_features(a.out PUBLIC cxx_std_20)
 
-add_subdirectory(stb)
-
-file(COPY textures DESTINATION ${CMAKE_BINARY_DIR})
 file(COPY models DESTINATION ${CMAKE_BINARY_DIR})
 
 ATTACH_GLSL_SHADERS(a.out "${CMAKE_SOURCE_DIR}/shaders")
-
-target_include_directories(a.out PUBLIC tiny_obj_loader/)
-target_include_directories(a.out PUBLIC stb/include/)
 
 target_link_libraries(a.out PUBLIC glfw3 vulkan dl pthread X11 Xxf86vm Xrandr Xi)
 

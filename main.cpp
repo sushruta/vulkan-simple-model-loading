@@ -127,7 +127,7 @@ struct UniformBufferObject {
 	alignas(16) glm::mat4 proj;
 };
 
-class HelloTriangleApplication {
+class SimpleVulkanApplication {
 	public:
 		void run() {
 			initWindow();
@@ -201,7 +201,7 @@ class HelloTriangleApplication {
 		}
 
 		static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
-			auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+			auto app = reinterpret_cast<SimpleVulkanApplication*>(glfwGetWindowUserPointer(window));
 			app->framebufferResized = true;
 		}
 
@@ -330,7 +330,7 @@ class HelloTriangleApplication {
 
 			VkApplicationInfo appInfo{};
 			appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-			appInfo.pApplicationName = "Hello Triangle";
+			appInfo.pApplicationName = "Simple Vulkan Application";
 			appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
 			appInfo.pEngineName = "No Engine";
 			appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
@@ -1561,7 +1561,7 @@ class HelloTriangleApplication {
 };
 
 int main() {
-	HelloTriangleApplication app;
+	SimpleVulkanApplication app;
 
 	try {
 		app.run();
